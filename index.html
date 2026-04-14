@@ -105,6 +105,15 @@ body {
   background: rgba(255,255,255,.18);
   border-color: rgba(255,255,255,.35);
 }
+#saveBtn.unsaved {
+  background: rgba(255,152,0,.6);
+  border-color: rgba(255,152,0,.8);
+  animation: savePulse 1.5s ease-in-out infinite;
+}
+@keyframes savePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .7; }
+}
 
 .month-nav {
   display: flex;
@@ -1042,8 +1051,10 @@ body {
       <button id="btnHorizontal" class="active" onclick="setViewMode('horizontal')">横表示</button>
       <button id="btnVertical" onclick="setViewMode('vertical')">縦表示</button>
       <span style="width:1px;height:20px;background:rgba(255,255,255,.2);"></span>
-      <button onclick="exportData()">Save</button>
-      <button onclick="importData()">Load</button>
+      <button id="saveBtn" onclick="manualSave()" style="background:rgba(76,175,80,.4);border-color:rgba(76,175,80,.6);">保存</button>
+      <span style="width:1px;height:20px;background:rgba(255,255,255,.2);"></span>
+      <button onclick="exportData()">Export</button>
+      <button onclick="importData()">Import</button>
       <span style="width:1px;height:20px;background:rgba(255,255,255,.2);"></span>
       <button onclick="backToProjects()">プロジェクト一覧</button>
     </div>
@@ -1486,6 +1497,28 @@ function initDefaultTasks() {
   ];
 }
 
+let hasUnsavedChanges = false;
+function markUnsaved() {
+  hasUnsavedChanges = true;
+  const btn = document.getElementById('saveBtn');
+  if (btn) {
+    btn.classList.add('unsaved');
+    btn.textContent = '● 保存';
+  }
+}
+function markSaved() {
+  hasUnsavedChanges = false;
+  const btn = document.getElementById('saveBtn');
+  if (btn) {
+    btn.classList.remove('unsaved');
+    btn.textContent = '保存';
+  }
+}
+function manualSave() {
+  saveTasks();
+  markSaved();
+}
+
 let saveTimeout = null;
 function saveTasks() {
   if (!currentProjectId) return;
@@ -1582,7 +1615,7 @@ function render() {
   renderAddColumn(visible);
   renderTimeline(visible, days);
   if (viewMode === 'vertical') renderVertical();
-  saveTasks();
+  markUnsaved();
   updateMonthLabel();
 }
 
@@ -2406,7 +2439,7 @@ function startEditTitle() {
 
   const finish = () => {
     projectTitle = input.value.trim() || 'プロジェクト名を入力';
-    saveTasks(); // saves title to both local and Firebase
+    markUnsaved(); // mark as unsaved, user clicks save button
     const h2 = document.createElement('h2');
     h2.id = 'projectTitle';
     h2.className = 'project-title';
@@ -2445,8 +2478,8 @@ function importData() {
       try {
         tasks = JSON.parse(ev.target.result);
         nextId = Math.max(...tasks.map(t => t.id)) + 1;
-        saveTasks();
         render();
+        manualSave();
       } catch(err) {
         alert('ファイルの読み込みに失敗しました');
       }
@@ -2498,6 +2531,14 @@ window.addEventListener('hashchange', () => {
 });
 
 initFromHash();
+
+// Warn before leaving with unsaved changes
+window.addEventListener('beforeunload', (e) => {
+  if (hasUnsavedChanges) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 </script>
 </body>
 </html>
