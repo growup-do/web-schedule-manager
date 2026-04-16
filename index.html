@@ -1467,6 +1467,13 @@ const JAPANESE_HOLIDAYS = {
 let tasks = [];
 let nextId = 1;
 
+function toLocalDateStr(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function makeId() { return nextId++; }
 
 function initDefaultTasks() {
@@ -1475,7 +1482,7 @@ function initDefaultTasks() {
   const d = (offset) => {
     const dt = new Date(today);
     dt.setDate(dt.getDate() + offset);
-    return dt.toISOString().slice(0,10);
+    return toLocalDateStr(dt);
   };
   tasks = [
     { id: makeId(), name: '要件定義・仕様確定', type: 'phase', color: COLORS[0], bars: [{start: d(0), end: d(13)}], collapsed: false, parentId: null },
@@ -1586,11 +1593,11 @@ function initCalendar() {
 }
 
 function getDayInfo(date) {
-  const ds = date.toISOString().slice(0,10);
+  const ds = toLocalDateStr(date);
   const dow = date.getDay();
   const holiday = JAPANESE_HOLIDAYS[ds];
   const today = new Date();
-  const isToday = ds === today.toISOString().slice(0,10);
+  const isToday = ds === toLocalDateStr(today);
   return { date, dateStr: ds, dow, holiday, isToday };
 }
 
@@ -2355,7 +2362,7 @@ function renderVertical() {
   html += '</tr></thead><tbody>';
 
   // Date rows
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toLocalDateStr(new Date());
   days.forEach(d => {
     const isToday = d.dateStr === today;
     let dateCls = 'v-date-cell';
@@ -2462,7 +2469,7 @@ function exportData() {
   const blob = new Blob([data], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'schedule_' + new Date().toISOString().slice(0,10) + '.json';
+  a.download = 'schedule_' + toLocalDateStr(new Date()) + '.json';
   a.click();
 }
 
