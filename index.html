@@ -515,6 +515,13 @@ body {
 
 .gantt-bar:hover { box-shadow: var(--shadow-md); filter: brightness(1.08); z-index: 6; }
 
+.gantt-bar.selected {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 2px rgba(255,255,255,.75), var(--shadow-md);
+  z-index: 5;
+}
+
 .gantt-bar .bar-resize-left,
 .gantt-bar .bar-resize-right {
   position: absolute;
@@ -1298,6 +1305,7 @@ function openProject(id, isNew) {
   currentProjectId = id;
   window.location.hash = '#/' + id;
   resetUndo();
+  selectedBars.clear();
 
   document.getElementById('projectSelector').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -1941,7 +1949,7 @@ function renderTimeline(visible, days) {
         const si = Math.max(startIdx, 0);
         const ei = endIdx >= 0 ? endIdx : days.length - 1;
         const barEl = document.createElement('div');
-        barEl.className = 'gantt-bar';
+        barEl.className = 'gantt-bar' + (selectedBars.has(b) ? ' selected' : '');
         barEl.style.left = (si * cellW + 2) + 'px';
         barEl.style.width = ((ei - si + 1) * cellW - 4) + 'px';
         barEl.style.background = b.color || task.color;
@@ -1979,6 +1987,12 @@ function renderTimeline(visible, days) {
 
         barEl.addEventListener('mousedown', (e) => {
           if (e.target.classList.contains('bar-delete')) return;
+          if (e.shiftKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleBarSelection(task.bars[bIdx]);
+            return;
+          }
           startBarDrag(e, task, bIdx, days, cellW);
         });
         row.appendChild(barEl);
@@ -1997,6 +2011,22 @@ function renderTimeline(visible, days) {
   };
 }
 
+// ========== BAR SELECTION ==========
+// Shift+click toggles a bar's membership; dragging any selected bar moves all.
+let selectedBars = new Set();
+
+function clearSelection() {
+  if (selectedBars.size === 0) return false;
+  selectedBars.clear();
+  return true;
+}
+
+function toggleBarSelection(barObj) {
+  if (selectedBars.has(barObj)) selectedBars.delete(barObj);
+  else selectedBars.add(barObj);
+  render();
+}
+
 // ========== BAR DRAGGING ==========
 let dragState = null;
 
@@ -2011,6 +2041,10 @@ function startBarDrag(e, task, barIndex, days, cellW) {
 
   let barEl = e.currentTarget;
   let isCopy = false;
+
+  // Multi-move: dragging a bar that's part of a multi-selection moves them all.
+  const grabbed = task.bars[barIndex];
+  const isMulti = !e.altKey && mode === 'move' && selectedBars.has(grabbed) && selectedBars.size > 1;
 
   // Option/Alt + drag on the body of a bar duplicates it and drags the copy.
   if (e.altKey && mode === 'move') {
@@ -2030,6 +2064,26 @@ function startBarDrag(e, task, barIndex, days, cellW) {
   }
 
   const b = task.bars[barIndex];
+
+  // Build the set of bars that move together (with their day indices).
+  let group = null;
+  if (mode === 'move') {
+    let members;
+    if (isMulti) {
+      members = [];
+      getVisibleTasks().forEach(t => (t.bars || []).forEach((bb, bi) => {
+        if (selectedBars.has(bb)) {
+          members.push({ b: bb, el: document.querySelector(`.gantt-bar[data-task-id="${t.id}"][data-bar-index="${bi}"]`) });
+        }
+      }));
+    } else {
+      members = [{ b: b, el: barEl }];
+    }
+    group = members
+      .map(m => ({ b: m.b, el: m.el, origStartIdx: days.findIndex(d => d.dateStr === m.b.start), origEndIdx: days.findIndex(d => d.dateStr === m.b.end) }))
+      .filter(g => g.origStartIdx >= 0 && g.origEndIdx >= 0);
+  }
+
   dragState = {
     task, barIndex, days, cellW, mode,
     startX: e.clientX,
@@ -2039,7 +2093,9 @@ function startBarDrag(e, task, barIndex, days, cellW) {
     origEnd: b.end,
     bar: barEl,
     moved: isCopy,
-    isCopy
+    isCopy,
+    isMulti,
+    group
   };
 
   if (isCopy) {
@@ -2074,24 +2130,36 @@ function onBarDrag(e) {
   const dayCells = Math.round(dx / cellW);
   if (dayCells !== 0) {
     dragState.moved = true;
-    const origStartIdx = days.findIndex(d => d.dateStr === origStart);
-    const origEndIdx = days.findIndex(d => d.dateStr === origEnd);
-    if (origStartIdx >= 0 && origEndIdx >= 0) {
-      if (mode === 'move') {
-        const newStart = Math.max(0, Math.min(days.length - (origEndIdx - origStartIdx) - 1, origStartIdx + dayCells));
-        const newEnd = newStart + (origEndIdx - origStartIdx);
-        b.start = days[newStart].dateStr;
-        b.end = days[newEnd].dateStr;
-        bar.style.left = (newStart * cellW + 2) + 'px';
-      } else if (mode === 'resize-left') {
-        const newStart = Math.max(0, Math.min(origEndIdx, origStartIdx + dayCells));
-        b.start = days[newStart].dateStr;
-        bar.style.left = (newStart * cellW + 2) + 'px';
-        bar.style.width = ((origEndIdx - newStart + 1) * cellW - 4) + 'px';
-      } else if (mode === 'resize-right') {
-        const newEnd = Math.max(origStartIdx, Math.min(days.length - 1, origEndIdx + dayCells));
-        b.end = days[newEnd].dateStr;
-        bar.style.width = ((newEnd - origStartIdx + 1) * cellW - 4) + 'px';
+    if (mode === 'move' && dragState.group) {
+      // Shift the whole group by one common delta, clamped so none goes
+      // out of range (keeps their relative offsets intact).
+      let minD = -Infinity, maxD = Infinity;
+      dragState.group.forEach(g => {
+        minD = Math.max(minD, -g.origStartIdx);
+        maxD = Math.min(maxD, days.length - 1 - g.origEndIdx);
+      });
+      const delta = Math.max(minD, Math.min(maxD, dayCells));
+      dragState.group.forEach(g => {
+        const ns = g.origStartIdx + delta;
+        const ne = g.origEndIdx + delta;
+        g.b.start = days[ns].dateStr;
+        g.b.end = days[ne].dateStr;
+        if (g.el) g.el.style.left = (ns * cellW + 2) + 'px';
+      });
+    } else if (mode === 'resize-left' || mode === 'resize-right') {
+      const origStartIdx = days.findIndex(d => d.dateStr === origStart);
+      const origEndIdx = days.findIndex(d => d.dateStr === origEnd);
+      if (origStartIdx >= 0 && origEndIdx >= 0) {
+        if (mode === 'resize-left') {
+          const newStart = Math.max(0, Math.min(origEndIdx, origStartIdx + dayCells));
+          b.start = days[newStart].dateStr;
+          bar.style.left = (newStart * cellW + 2) + 'px';
+          bar.style.width = ((origEndIdx - newStart + 1) * cellW - 4) + 'px';
+        } else {
+          const newEnd = Math.max(origStartIdx, Math.min(days.length - 1, origEndIdx + dayCells));
+          b.end = days[newEnd].dateStr;
+          bar.style.width = ((newEnd - origStartIdx + 1) * cellW - 4) + 'px';
+        }
       }
     }
   }
@@ -2127,9 +2195,13 @@ function onBarDragEnd() {
     }
     render();
   } else if (st.moved) {
+    // A single (non-multi) move drops any multi-selection.
+    if (!st.isMulti) clearSelection();
     render();
   } else {
-    // A click without dragging opens the edit menu (label & color).
+    // A click without dragging clears any selection and opens the edit menu.
+    clearSelection();
+    render();
     openBarMenu(st.downClientX, st.downClientY, st.task, st.barIndex);
   }
 }
@@ -2138,6 +2210,25 @@ function onBarDragEnd() {
 function barLabelText(task, bar, bIdx) {
   if (bar.label != null && bar.label !== '') return bar.label;
   return bIdx === 0 ? task.name : '';
+}
+
+// Wire IME-safe Enter/Escape onto a text input. The Enter that confirms an
+// IME (kanji) conversion must NOT also submit, and the submit Enter must work
+// reliably across Chrome/Safari (which differ in compositionend/keydown order).
+function imeSafeEnter(input, onEnter, onEscape) {
+  let composing = false;
+  let endedAt = 0;
+  input.addEventListener('compositionstart', () => { composing = true; });
+  input.addEventListener('compositionend', () => { composing = false; endedAt = Date.now(); });
+  input.addEventListener('keydown', (ev) => {
+    if (composing || ev.isComposing) return; // let the IME handle keys while converting
+    if (ev.key === 'Enter') {
+      if (Date.now() - endedAt < 150) return; // the Enter that just confirmed a conversion
+      onEnter();
+    } else if (ev.key === 'Escape') {
+      if (onEscape) onEscape();
+    }
+  });
 }
 
 function startBarRename(task, barIndex) {
@@ -2163,11 +2254,7 @@ function startBarRename(task, barIndex) {
     render();
   };
   input.onblur = finish;
-  input.onkeydown = (ev) => {
-    if (ev.isComposing || ev.keyCode === 229) return; // IME変換中のEnterは無視
-    if (ev.key === 'Enter') finish();
-    if (ev.key === 'Escape') { input.value = cur; finish(); }
-  };
+  imeSafeEnter(input, finish, () => { input.value = cur; finish(); });
 }
 
 let barCtx = null;
@@ -2428,11 +2515,7 @@ function startRename(task) {
     render();
   };
   input.onblur = finish;
-  input.onkeydown = (e) => {
-    if (e.isComposing || e.keyCode === 229) return; // IME変換中のEnterは無視
-    if (e.key === 'Enter') finish();
-    if (e.key === 'Escape') { input.value = task.name; finish(); }
-  };
+  imeSafeEnter(input, finish, () => { input.value = task.name; finish(); });
 }
 
 // ========== CONTEXT MENU ==========
@@ -2759,11 +2842,7 @@ function startEditTitle() {
     document.title = projectTitle + ' - GROW UP Schedule';
   };
   input.onblur = finish;
-  input.onkeydown = (e) => {
-    if (e.isComposing || e.keyCode === 229) return; // IME変換中のEnterは無視
-    if (e.key === 'Enter') input.blur();
-    if (e.key === 'Escape') { input.value = projectTitle; input.blur(); }
-  };
+  imeSafeEnter(input, () => input.blur(), () => { input.value = projectTitle; input.blur(); });
 }
 
 // ========== EXPORT / IMPORT ==========
@@ -2845,13 +2924,16 @@ initFromHash();
 // Undo with Cmd/Ctrl+Z (ignored while editing text fields, so native
 // text undo still works inside inputs).
 window.addEventListener('keydown', (e) => {
+  const t = e.target;
+  const tag = (t && t.tagName || '').toLowerCase();
+  const inField = tag === 'input' || tag === 'textarea' || (t && t.isContentEditable);
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
-    const t = e.target;
-    const tag = (t && t.tagName || '').toLowerCase();
-    if (tag === 'input' || tag === 'textarea' || (t && t.isContentEditable)) return;
+    if (inField) return;
     if (!currentProjectId) return;
     e.preventDefault();
     undo();
+  } else if (e.key === 'Escape' && !inField) {
+    if (clearSelection()) render();
   }
 });
 
