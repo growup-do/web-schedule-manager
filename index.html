@@ -1297,6 +1297,7 @@ function deleteProject(id) {
 function openProject(id, isNew) {
   currentProjectId = id;
   window.location.hash = '#/' + id;
+  resetUndo();
 
   document.getElementById('projectSelector').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -1426,7 +1427,12 @@ function attachFirebaseListener(id) {
         projectTitle = data.title;
         renderTitle();
       }
+      // Remote syncs are not local edits — don't create undo steps for them
+      // and reset the undo baseline to the synced state.
+      lastSnapshot = JSON.stringify(tasks);
+      suppressUndoCapture = true;
       render();
+      suppressUndoCapture = false;
       // Also save to local as cache
       localStorage.setItem('gantt_tasks_' + id, JSON.stringify(tasks));
       localStorage.setItem('gantt_title_' + id, projectTitle);
@@ -1655,8 +1661,43 @@ function getDays() {
 
 const DOW_NAMES = ['日','月','火','水','木','金','土'];
 
+// ========== UNDO ==========
+let undoStack = [];
+let lastSnapshot = null;
+let suppressUndoCapture = false;
+
+function resetUndo() {
+  undoStack = [];
+  lastSnapshot = null;
+}
+
+// Called at the start of every render. If tasks changed since the previous
+// render, the previous state is pushed onto the undo stack.
+function captureForUndo() {
+  const cur = JSON.stringify(tasks);
+  if (lastSnapshot !== null && lastSnapshot !== cur) {
+    undoStack.push(lastSnapshot);
+    if (undoStack.length > 100) undoStack.shift();
+  }
+  lastSnapshot = cur;
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  const prev = undoStack.pop();
+  tasks = JSON.parse(prev);
+  nextId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
+  lastSnapshot = prev;
+  suppressUndoCapture = true;
+  render();
+  suppressUndoCapture = false;
+  saveTasks();
+  markSaved();
+}
+
 // ========== RENDER ==========
 function render() {
+  if (!suppressUndoCapture) captureForUndo();
   recomputeCalendarRange();
   const visible = getVisibleTasks();
   const days = getDays();
@@ -1942,21 +1983,40 @@ function startBarDrag(e, task, barIndex, days, cellW) {
   e.preventDefault();
   e.stopPropagation();
 
-  const barEl = e.currentTarget;
-  const b = task.bars[barIndex];
   const isLeftResize = e.target.classList.contains('bar-resize-left');
   const isRightResize = e.target.classList.contains('bar-resize-right');
+  const mode = isLeftResize ? 'resize-left' : isRightResize ? 'resize-right' : 'move';
 
+  let barEl = e.currentTarget;
+  let isCopy = false;
+
+  // Option/Alt + drag on the body of a bar duplicates it and drags the copy.
+  if (e.altKey && mode === 'move') {
+    const orig = task.bars[barIndex];
+    const copy = { start: orig.start, end: orig.end };
+    if (orig.color) copy.color = orig.color;
+    if (orig.label != null) copy.label = orig.label;
+    task.bars.push(copy);
+    barIndex = task.bars.length - 1;
+    isCopy = true;
+    // Suppress so creation + final position collapse into one undo step.
+    suppressUndoCapture = true;
+    render();
+    suppressUndoCapture = false;
+    barEl = document.querySelector(`.gantt-bar[data-task-id="${task.id}"][data-bar-index="${barIndex}"]`);
+    if (!barEl) return;
+  }
+
+  const b = task.bars[barIndex];
   dragState = {
-    task, barIndex, days, cellW,
-    mode: isLeftResize ? 'resize-left' : isRightResize ? 'resize-right' : 'move',
+    task, barIndex, days, cellW, mode,
     startX: e.clientX,
     downClientX: e.clientX,
     downClientY: e.clientY,
     origStart: b.start,
     origEnd: b.end,
     bar: barEl,
-    moved: false
+    moved: isCopy
   };
 
   document.addEventListener('mousemove', onBarDrag);
@@ -2720,6 +2780,19 @@ setInterval(() => {
     markSaved();
   }
 }, 10000);
+
+// Undo with Cmd/Ctrl+Z (ignored while editing text fields, so native
+// text undo still works inside inputs).
+window.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+    const t = e.target;
+    const tag = (t && t.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || (t && t.isContentEditable)) return;
+    if (!currentProjectId) return;
+    e.preventDefault();
+    undo();
+  }
+});
 
 // Warn before leaving with unsaved changes
 window.addEventListener('beforeunload', (e) => {
