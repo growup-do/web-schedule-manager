@@ -1421,6 +1421,9 @@ function attachFirebaseListener(id) {
     }
 
     if (data && data.tasks) {
+      // Don't re-render (which would destroy an open text input) while the
+      // user is typing a name/label. The update is re-applied on the next event.
+      if (isEditingText()) { setSyncStatus('connected'); return; }
       tasks = data.tasks;
       nextId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
       if (data.title) {
@@ -1528,6 +1531,25 @@ function markUnsaved() {
     btn.classList.add('unsaved');
     btn.textContent = '● 保存';
   }
+  scheduleAutoSave();
+}
+
+// Auto-save runs a short while after an action (not on a fixed timer), and
+// never while a name/label is being typed — otherwise the re-render that a
+// save triggers would discard the in-progress text input.
+let autoSaveTimer = null;
+function isEditingText() {
+  return !!document.querySelector('.gantt-bar .bar-label input, .task-label input, .project-title-input');
+}
+function scheduleAutoSave() {
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(runAutoSave, 1200);
+}
+function runAutoSave() {
+  if (!currentProjectId || !hasUnsavedChanges) return;
+  if (isEditingText()) { scheduleAutoSave(); return; } // 編集中は確定後まで待つ
+  saveTasks();
+  markSaved();
 }
 function markSaved() {
   hasUnsavedChanges = false;
@@ -2775,14 +2797,6 @@ window.addEventListener('hashchange', () => {
 });
 
 initFromHash();
-
-// Auto-save every 10 seconds when there are unsaved changes
-setInterval(() => {
-  if (currentProjectId && hasUnsavedChanges) {
-    saveTasks();
-    markSaved();
-  }
-}, 10000);
 
 // Undo with Cmd/Ctrl+Z (ignored while editing text fields, so native
 // text undo still works inside inputs).
