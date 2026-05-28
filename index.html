@@ -1433,6 +1433,9 @@ function attachFirebaseListener(id) {
       localStorage.setItem('gantt_tasks_' + id, JSON.stringify(tasks));
       localStorage.setItem('gantt_title_' + id, projectTitle);
       setSyncStatus('connected');
+      // Data received from Firebase is already persisted, so clear the
+      // unsaved flag that render() optimistically set.
+      markSaved();
     }
   }, (error) => {
     console.error('Firebase read error:', error);
@@ -2066,7 +2069,9 @@ function showBarContextMenu(e, task, barIndex) {
     picker.appendChild(swatch);
   });
 
-  document.addEventListener('click', hideBarContextMenu);
+  // Defer so the trailing click of this same right-click interaction
+  // doesn't immediately close the menu.
+  setTimeout(() => document.addEventListener('click', hideBarContextMenu), 0);
 }
 
 function hideBarContextMenu() {
@@ -2313,7 +2318,7 @@ function showContextMenu(e, task) {
     picker.appendChild(swatch);
   });
 
-  document.addEventListener('click', hideContextMenu);
+  setTimeout(() => document.addEventListener('click', hideContextMenu), 0);
 }
 
 function hideContextMenu() {
@@ -2685,6 +2690,14 @@ window.addEventListener('hashchange', () => {
 });
 
 initFromHash();
+
+// Auto-save every 10 seconds when there are unsaved changes
+setInterval(() => {
+  if (currentProjectId && hasUnsavedChanges) {
+    saveTasks();
+    markSaved();
+  }
+}, 10000);
 
 // Warn before leaving with unsaved changes
 window.addEventListener('beforeunload', (e) => {
