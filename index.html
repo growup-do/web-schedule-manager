@@ -1002,7 +1002,7 @@ body {
     <h2>Schedule Manager</h2>
     <p>プロジェクトを選択するか、新規作成してください</p>
     <div class="new-project-form">
-      <input type="text" id="newProjectName" placeholder="新しいプロジェクト名" onkeydown="if(event.key==='Enter')createNewProject()">
+      <input type="text" id="newProjectName" placeholder="新しいプロジェクト名" onkeydown="if(!event.isComposing&&event.keyCode!==229&&event.key==='Enter')createNewProject()">
       <button onclick="createNewProject()">作成</button>
     </div>
     <div class="project-list" id="projectList"></div>
@@ -2098,6 +2098,7 @@ function startBarRename(task, barIndex) {
   };
   input.onblur = finish;
   input.onkeydown = (ev) => {
+    if (ev.isComposing || ev.keyCode === 229) return; // IME変換中のEnterは無視
     if (ev.key === 'Enter') finish();
     if (ev.key === 'Escape') { input.value = cur; finish(); }
   };
@@ -2362,6 +2363,7 @@ function startRename(task) {
   };
   input.onblur = finish;
   input.onkeydown = (e) => {
+    if (e.isComposing || e.keyCode === 229) return; // IME変換中のEnterは無視
     if (e.key === 'Enter') finish();
     if (e.key === 'Escape') { input.value = task.name; finish(); }
   };
@@ -2692,6 +2694,7 @@ function startEditTitle() {
   };
   input.onblur = finish;
   input.onkeydown = (e) => {
+    if (e.isComposing || e.keyCode === 229) return; // IME変換中のEnterは無視
     if (e.key === 'Enter') input.blur();
     if (e.key === 'Escape') { input.value = projectTitle; input.blur(); }
   };
