@@ -1124,6 +1124,15 @@ body {
   <div class="context-menu-item danger" onclick="ctxAction('delete')">削除</div>
 </div>
 
+<!-- Bar Context Menu -->
+<div class="context-menu" id="barContextMenu">
+  <div class="context-menu-item" onclick="barCtxRename()">ラベル名を変更</div>
+  <div style="padding:6px 12px 2px;font-size:11px;color:#888;font-weight:600;">色を変更</div>
+  <div class="color-picker" id="barColorPicker"></div>
+  <div class="context-menu-item" onclick="barCtxResetColor()">色をリセット</div>
+  <div class="context-menu-item danger" onclick="barCtxDelete()">削除</div>
+</div>
+
 <!-- Modal -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal" id="modal">
@@ -1587,9 +1596,41 @@ function getVisibleTasks() {
 let viewStartDate;
 let totalDays = 120;
 
-function initCalendar() {
+function parseLocalDate(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function daysBetween(a, b) {
+  return Math.round((b - a) / 86400000);
+}
+
+function getBarDateBounds() {
+  let min = null, max = null;
+  tasks.forEach(t => (t.bars || []).forEach(b => {
+    if (b.start && (!min || b.start < min)) min = b.start;
+    if (b.end && (!max || b.end > max)) max = b.end;
+  }));
+  return { min, max };
+}
+
+// Left edge = earliest of (today, earliest scheduled bar). Right edge extends
+// past the latest bar so there is room to add future schedules.
+function recomputeCalendarRange() {
   const today = new Date();
-  viewStartDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  today.setHours(0, 0, 0, 0);
+  const { min, max } = getBarDateBounds();
+  let start = new Date(today);
+  if (min) { const m = parseLocalDate(min); if (m < start) start = m; }
+  let end = new Date(today);
+  if (max) { const x = parseLocalDate(max); if (x > end) end = x; }
+  end.setDate(end.getDate() + 90);
+  viewStartDate = start;
+  totalDays = Math.max(120, daysBetween(start, end) + 1);
+}
+
+function initCalendar() {
+  recomputeCalendarRange();
 }
 
 function getDayInfo(date) {
@@ -1615,6 +1656,7 @@ const DOW_NAMES = ['日','月','火','水','木','金','土'];
 
 // ========== RENDER ==========
 function render() {
+  recomputeCalendarRange();
   const visible = getVisibleTasks();
   const days = getDays();
 
@@ -1626,11 +1668,20 @@ function render() {
   updateMonthLabel();
 }
 
+function getTimelineCellW() {
+  const dc = document.querySelector('.day-cell');
+  return dc ? dc.offsetWidth : 36;
+}
+
 function updateMonthLabel() {
   const label = document.getElementById('currentMonthLabel');
-  const y = viewStartDate.getFullYear();
-  const m = viewStartDate.getMonth() + 1;
-  label.textContent = `${y}年${m}月`;
+  if (!label) return;
+  const wrapper = document.getElementById('timelineWrapper');
+  const cellW = getTimelineCellW();
+  const idx = wrapper ? Math.round(wrapper.scrollLeft / cellW) : 0;
+  const d = new Date(viewStartDate);
+  d.setDate(d.getDate() + idx);
+  label.textContent = `${d.getFullYear()}年${d.getMonth() + 1}月`;
 }
 
 function renderSidebar(visible) {
@@ -1713,13 +1764,12 @@ function renderAddColumn(visible) {
     btn.onclick = () => {
       if (!task.bars) task.bars = [];
       const days = getDays();
-      const lastBar = task.bars.length > 0 ? task.bars[task.bars.length - 1] : null;
-      let startDay = 0;
-      if (lastBar && lastBar.end) {
-        const lastEndIdx = days.findIndex(d => d.dateStr === lastBar.end);
-        startDay = lastEndIdx >= 0 ? lastEndIdx + 2 : 0;
-      }
-      if (startDay >= days.length) startDay = Math.max(0, days.length - 7);
+      // Create the new bar at the left edge of the currently visible viewport
+      // so it appears where the user is looking instead of far to the left.
+      const wrapper = document.getElementById('timelineWrapper');
+      const cellW = getTimelineCellW();
+      let startDay = wrapper ? Math.round(wrapper.scrollLeft / cellW) : 0;
+      startDay = Math.max(0, Math.min(startDay, days.length - 1));
       const endDay = Math.min(startDay + 6, days.length - 1);
       task.bars.push({ start: days[startDay].dateStr, end: days[endDay].dateStr });
       render();
@@ -1830,14 +1880,20 @@ function renderTimeline(visible, days) {
         barEl.className = 'gantt-bar';
         barEl.style.left = (si * cellW + 2) + 'px';
         barEl.style.width = ((ei - si + 1) * cellW - 4) + 'px';
-        barEl.style.background = task.color;
+        barEl.style.background = b.color || task.color;
         barEl.dataset.taskId = task.id;
         barEl.dataset.barIndex = bIdx;
 
         const label = document.createElement('span');
         label.className = 'bar-label';
-        label.textContent = bIdx === 0 ? task.name : '';
+        label.textContent = barLabelText(task, b, bIdx);
         barEl.appendChild(label);
+
+        barEl.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          startBarRename(task, bIdx);
+        });
+        barEl.addEventListener('contextmenu', (e) => showBarContextMenu(e, task, bIdx));
 
         // Delete button
         const del = document.createElement('div');
@@ -1877,6 +1933,7 @@ function renderTimeline(visible, days) {
   const sidebarBody = document.getElementById('sidebarBody');
   wrapper.onscroll = () => {
     sidebarBody.scrollTop = wrapper.scrollTop;
+    updateMonthLabel();
   };
 }
 
@@ -1899,7 +1956,8 @@ function startBarDrag(e, task, barIndex, days, cellW) {
     startX: e.clientX,
     origStart: b.start,
     origEnd: b.end,
-    bar: barEl
+    bar: barEl,
+    moved: false
   };
 
   document.addEventListener('mousemove', onBarDrag);
@@ -1913,6 +1971,7 @@ function onBarDrag(e) {
   const dx = e.clientX - startX;
   const dayCells = Math.round(dx / cellW);
   if (dayCells === 0) return;
+  dragState.moved = true;
 
   const origStartIdx = days.findIndex(d => d.dateStr === origStart);
   const origEndIdx = days.findIndex(d => d.dateStr === origEnd);
@@ -1937,10 +1996,97 @@ function onBarDrag(e) {
 }
 
 function onBarDragEnd() {
+  const moved = dragState && dragState.moved;
   dragState = null;
   document.removeEventListener('mousemove', onBarDrag);
   document.removeEventListener('mouseup', onBarDragEnd);
-  render();
+  if (moved) render();
+}
+
+// ========== BAR LABEL / COLOR ==========
+function barLabelText(task, bar, bIdx) {
+  if (bar.label != null && bar.label !== '') return bar.label;
+  return bIdx === 0 ? task.name : '';
+}
+
+function startBarRename(task, barIndex) {
+  const barEl = document.querySelector(`.gantt-bar[data-task-id="${task.id}"][data-bar-index="${barIndex}"]`);
+  if (!barEl) return;
+  const b = task.bars[barIndex];
+  const label = barEl.querySelector('.bar-label');
+  if (!label) return;
+  const cur = barLabelText(task, b, barIndex);
+  const input = document.createElement('input');
+  input.value = cur;
+  input.style.cssText = 'width:100%;border:none;border-radius:3px;padding:0 4px;font-size:inherit;font-weight:inherit;color:#1a1a2e;outline:none;font-family:inherit;background:#fff;';
+  label.textContent = '';
+  label.style.pointerEvents = 'auto';
+  label.appendChild(input);
+  input.focus();
+  input.select();
+  input.addEventListener('mousedown', (ev) => ev.stopPropagation());
+
+  const finish = () => {
+    const v = input.value.trim();
+    if (v) b.label = v; else delete b.label;
+    render();
+  };
+  input.onblur = finish;
+  input.onkeydown = (ev) => {
+    if (ev.key === 'Enter') finish();
+    if (ev.key === 'Escape') { input.value = cur; finish(); }
+  };
+}
+
+let barCtx = null;
+
+function showBarContextMenu(e, task, barIndex) {
+  e.preventDefault();
+  e.stopPropagation();
+  barCtx = { task, barIndex };
+  const menu = document.getElementById('barContextMenu');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.classList.add('show');
+
+  const picker = document.getElementById('barColorPicker');
+  picker.innerHTML = '';
+  const bar = task.bars[barIndex];
+  const cur = bar.color || task.color;
+  COLORS.forEach(c => {
+    const swatch = document.createElement('div');
+    swatch.className = 'color-swatch';
+    swatch.style.background = c;
+    if (c === cur) swatch.style.borderColor = '#1a1a2e';
+    swatch.onclick = () => {
+      bar.color = c;
+      menu.classList.remove('show');
+      render();
+    };
+    picker.appendChild(swatch);
+  });
+
+  document.addEventListener('click', hideBarContextMenu);
+}
+
+function hideBarContextMenu() {
+  document.getElementById('barContextMenu').classList.remove('show');
+  document.removeEventListener('click', hideBarContextMenu);
+}
+
+function barCtxRename() {
+  hideBarContextMenu();
+  if (barCtx) startBarRename(barCtx.task, barCtx.barIndex);
+}
+
+function barCtxResetColor() {
+  hideBarContextMenu();
+  if (barCtx) { delete barCtx.task.bars[barCtx.barIndex].color; render(); }
+}
+
+function barCtxDelete() {
+  hideBarContextMenu();
+  if (barCtx) { barCtx.task.bars.splice(barCtx.barIndex, 1); render(); }
 }
 
 // ========== DRAG & DROP (PALETTE + REORDER) ==========
@@ -2407,21 +2553,22 @@ function renderVertical() {
 
 // ========== NAV ==========
 function navMonth(dir) {
-  viewStartDate.setMonth(viewStartDate.getMonth() + dir);
-  render();
+  const wrapper = document.getElementById('timelineWrapper');
+  if (!wrapper) return;
+  wrapper.scrollLeft += dir * getTimelineCellW() * 30;
+  updateMonthLabel();
 }
 
 function goToday() {
-  const today = new Date();
-  viewStartDate = new Date(today.getFullYear(), today.getMonth(), 1);
   render();
   setTimeout(() => {
     const days = getDays();
     const todayIdx = days.findIndex(d => d.isToday);
     if (todayIdx >= 0) {
-      const cellW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-width'));
+      const cellW = getTimelineCellW();
       document.getElementById('timelineWrapper').scrollLeft = Math.max(0, todayIdx * cellW - 200);
     }
+    updateMonthLabel();
   }, 50);
 }
 
