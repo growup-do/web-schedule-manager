@@ -1890,10 +1890,6 @@ function renderTimeline(visible, days) {
         label.textContent = barLabelText(task, b, bIdx);
         barEl.appendChild(label);
 
-        barEl.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          startBarRename(task, bIdx);
-        });
         barEl.addEventListener('contextmenu', (e) => showBarContextMenu(e, task, bIdx));
 
         // Delete button
@@ -1955,6 +1951,8 @@ function startBarDrag(e, task, barIndex, days, cellW) {
     task, barIndex, days, cellW,
     mode: isLeftResize ? 'resize-left' : isRightResize ? 'resize-right' : 'move',
     startX: e.clientX,
+    downClientX: e.clientX,
+    downClientY: e.clientY,
     origStart: b.start,
     origEnd: b.end,
     bar: barEl,
@@ -1997,11 +1995,17 @@ function onBarDrag(e) {
 }
 
 function onBarDragEnd() {
-  const moved = dragState && dragState.moved;
+  const st = dragState;
   dragState = null;
   document.removeEventListener('mousemove', onBarDrag);
   document.removeEventListener('mouseup', onBarDragEnd);
-  if (moved) render();
+  if (!st) return;
+  if (st.moved) {
+    render();
+  } else {
+    // A click without dragging opens the edit menu (label & color).
+    openBarMenu(st.downClientX, st.downClientY, st.task, st.barIndex);
+  }
 }
 
 // ========== BAR LABEL / COLOR ==========
@@ -2040,15 +2044,17 @@ function startBarRename(task, barIndex) {
 }
 
 let barCtx = null;
+let barMenuOpenedAt = 0;
 
-function showBarContextMenu(e, task, barIndex) {
-  e.preventDefault();
-  e.stopPropagation();
+function openBarMenu(clientX, clientY, task, barIndex) {
   barCtx = { task, barIndex };
   const menu = document.getElementById('barContextMenu');
-  menu.style.left = e.clientX + 'px';
-  menu.style.top = e.clientY + 'px';
   menu.classList.add('show');
+  // Keep the menu within the viewport.
+  const mw = menu.offsetWidth || 200;
+  const mh = menu.offsetHeight || 190;
+  menu.style.left = Math.max(4, Math.min(clientX, window.innerWidth - mw - 4)) + 'px';
+  menu.style.top = Math.max(4, Math.min(clientY, window.innerHeight - mh - 4)) + 'px';
 
   const picker = document.getElementById('barColorPicker');
   picker.innerHTML = '';
@@ -2061,19 +2067,30 @@ function showBarContextMenu(e, task, barIndex) {
     if (c === cur) swatch.style.borderColor = '#1a1a2e';
     swatch.onclick = () => {
       bar.color = c;
-      menu.classList.remove('show');
+      hideBarContextMenu();
       render();
     };
     picker.appendChild(swatch);
   });
 
-  // Defer so the trailing click of this same right-click interaction
-  // doesn't immediately close the menu.
-  setTimeout(() => document.addEventListener('click', hideBarContextMenu), 0);
+  barMenuOpenedAt = Date.now();
+  document.addEventListener('click', hideBarContextMenu);
 }
 
-function hideBarContextMenu() {
-  document.getElementById('barContextMenu').classList.remove('show');
+function showBarContextMenu(e, task, barIndex) {
+  e.preventDefault();
+  e.stopPropagation();
+  openBarMenu(e.clientX, e.clientY, task, barIndex);
+}
+
+function hideBarContextMenu(e) {
+  const menu = document.getElementById('barContextMenu');
+  if (e) {
+    // Don't close when clicking inside the menu, or on the click that opened it.
+    if (menu.contains(e.target)) return;
+    if (Date.now() - barMenuOpenedAt < 350) return;
+  }
+  menu.classList.remove('show');
   document.removeEventListener('click', hideBarContextMenu);
 }
 
@@ -2292,6 +2309,7 @@ function startRename(task) {
 
 // ========== CONTEXT MENU ==========
 let ctxTask = null;
+let ctxMenuOpenedAt = 0;
 
 function showContextMenu(e, task) {
   ctxTask = task;
@@ -2316,11 +2334,17 @@ function showContextMenu(e, task) {
     picker.appendChild(swatch);
   });
 
-  setTimeout(() => document.addEventListener('click', hideContextMenu), 0);
+  ctxMenuOpenedAt = Date.now();
+  document.addEventListener('click', hideContextMenu);
 }
 
-function hideContextMenu() {
-  document.getElementById('contextMenu').classList.remove('show');
+function hideContextMenu(e) {
+  const menu = document.getElementById('contextMenu');
+  if (e) {
+    if (menu.contains(e.target)) return;
+    if (Date.now() - ctxMenuOpenedAt < 350) return;
+  }
+  menu.classList.remove('show');
   document.removeEventListener('click', hideContextMenu);
 }
 
