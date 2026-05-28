@@ -2038,41 +2038,74 @@ function startBarDrag(e, task, barIndex, days, cellW) {
     origStart: b.start,
     origEnd: b.end,
     bar: barEl,
-    moved: isCopy
+    moved: isCopy,
+    isCopy
   };
+
+  if (isCopy) {
+    // For vertical copy: map rows to tasks so the copy can be dropped on
+    // a different row (task).
+    dragState.visibleTasks = getVisibleTasks();
+    dragState.rows = Array.from(document.querySelectorAll('#timelineBody .timeline-row'));
+    dragState.currentTargetTask = task;
+  }
 
   document.addEventListener('mousemove', onBarDrag);
   document.addEventListener('mouseup', onBarDragEnd);
 }
 
+function rowIndexAtY(rows, clientY) {
+  if (!rows || !rows.length) return -1;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i].getBoundingClientRect();
+    if (clientY >= r.top && clientY < r.bottom) return i;
+  }
+  if (clientY < rows[0].getBoundingClientRect().top) return 0;
+  return rows.length - 1;
+}
+
 function onBarDrag(e) {
   if (!dragState) return;
-  const { task, barIndex, days, cellW, mode, startX, origStart, origEnd, bar } = dragState;
+  const { task, barIndex, days, cellW, mode, startX, origStart, origEnd, bar, isCopy } = dragState;
   const b = task.bars[barIndex];
+
+  // Horizontal movement / resize (snapped to whole days).
   const dx = e.clientX - startX;
   const dayCells = Math.round(dx / cellW);
-  if (dayCells === 0) return;
-  dragState.moved = true;
+  if (dayCells !== 0) {
+    dragState.moved = true;
+    const origStartIdx = days.findIndex(d => d.dateStr === origStart);
+    const origEndIdx = days.findIndex(d => d.dateStr === origEnd);
+    if (origStartIdx >= 0 && origEndIdx >= 0) {
+      if (mode === 'move') {
+        const newStart = Math.max(0, Math.min(days.length - (origEndIdx - origStartIdx) - 1, origStartIdx + dayCells));
+        const newEnd = newStart + (origEndIdx - origStartIdx);
+        b.start = days[newStart].dateStr;
+        b.end = days[newEnd].dateStr;
+        bar.style.left = (newStart * cellW + 2) + 'px';
+      } else if (mode === 'resize-left') {
+        const newStart = Math.max(0, Math.min(origEndIdx, origStartIdx + dayCells));
+        b.start = days[newStart].dateStr;
+        bar.style.left = (newStart * cellW + 2) + 'px';
+        bar.style.width = ((origEndIdx - newStart + 1) * cellW - 4) + 'px';
+      } else if (mode === 'resize-right') {
+        const newEnd = Math.max(origStartIdx, Math.min(days.length - 1, origEndIdx + dayCells));
+        b.end = days[newEnd].dateStr;
+        bar.style.width = ((newEnd - origStartIdx + 1) * cellW - 4) + 'px';
+      }
+    }
+  }
 
-  const origStartIdx = days.findIndex(d => d.dateStr === origStart);
-  const origEndIdx = days.findIndex(d => d.dateStr === origEnd);
-  if (origStartIdx < 0 || origEndIdx < 0) return;
-
-  if (mode === 'move') {
-    const newStart = Math.max(0, Math.min(days.length - (origEndIdx - origStartIdx) - 1, origStartIdx + dayCells));
-    const newEnd = newStart + (origEndIdx - origStartIdx);
-    b.start = days[newStart].dateStr;
-    b.end = days[newEnd].dateStr;
-    bar.style.left = (newStart * cellW + 2) + 'px';
-  } else if (mode === 'resize-left') {
-    const newStart = Math.max(0, Math.min(origEndIdx, origStartIdx + dayCells));
-    b.start = days[newStart].dateStr;
-    bar.style.left = (newStart * cellW + 2) + 'px';
-    bar.style.width = ((origEndIdx - newStart + 1) * cellW - 4) + 'px';
-  } else if (mode === 'resize-right') {
-    const newEnd = Math.max(origStartIdx, Math.min(days.length - 1, origEndIdx + dayCells));
-    b.end = days[newEnd].dateStr;
-    bar.style.width = ((newEnd - origStartIdx + 1) * cellW - 4) + 'px';
+  // Vertical movement (copy only): follow the cursor into another row.
+  if (isCopy && dragState.rows) {
+    const idx = rowIndexAtY(dragState.rows, e.clientY);
+    if (idx >= 0) {
+      const targetTask = dragState.visibleTasks[idx];
+      if (targetTask && targetTask !== dragState.currentTargetTask) {
+        dragState.currentTargetTask = targetTask;
+        dragState.rows[idx].appendChild(bar); // visually move into the target row
+      }
+    }
   }
 }
 
@@ -2082,7 +2115,18 @@ function onBarDragEnd() {
   document.removeEventListener('mousemove', onBarDrag);
   document.removeEventListener('mouseup', onBarDragEnd);
   if (!st) return;
-  if (st.moved) {
+  if (st.isCopy) {
+    // Move the copy into the row (task) it was dropped on, if different.
+    const target = st.currentTargetTask || st.task;
+    if (target !== st.task) {
+      const copy = st.task.bars.splice(st.barIndex, 1)[0];
+      if (copy) {
+        if (!target.bars) target.bars = [];
+        target.bars.push(copy);
+      }
+    }
+    render();
+  } else if (st.moved) {
     render();
   } else {
     // A click without dragging opens the edit menu (label & color).
