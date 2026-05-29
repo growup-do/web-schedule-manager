@@ -2184,8 +2184,10 @@ function startBarDrag(e, task, barIndex, days, cellW) {
     group
   };
 
-  if (isCopy) {
-    // For vertical copy: map rows to tasks so the copy can be dropped on
+  // Allow a single bar (copied or plain) to be dragged onto a different row
+  // (task / phase). Multi-move stays horizontal-only.
+  if (mode === 'move' && !isMulti) {
+    // For vertical move/copy: map rows to tasks so the bar can be dropped on
     // a different row (task).
     dragState.visibleTasks = getVisibleTasks();
     dragState.rows = Array.from(document.querySelectorAll('#timelineBody .timeline-row'));
@@ -2250,14 +2252,16 @@ function onBarDrag(e) {
     }
   }
 
-  // Vertical movement (copy only): follow the cursor into another row.
-  if (isCopy && dragState.rows) {
+  // Vertical movement (single bar — move or copy): follow the cursor into
+  // another row so the bar can be relocated to a different task / phase.
+  if (dragState.rows) {
     const idx = rowIndexAtY(dragState.rows, e.clientY);
     if (idx >= 0) {
       const targetTask = dragState.visibleTasks[idx];
       if (targetTask && targetTask !== dragState.currentTargetTask) {
         dragState.currentTargetTask = targetTask;
         dragState.rows[idx].appendChild(bar); // visually move into the target row
+        if (targetTask !== dragState.task) dragState.moved = true;
       }
     }
   }
@@ -2269,16 +2273,19 @@ function onBarDragEnd() {
   document.removeEventListener('mousemove', onBarDrag);
   document.removeEventListener('mouseup', onBarDragEnd);
   if (!st) return;
-  if (st.isCopy) {
-    // Move the copy into the row (task) it was dropped on, if different.
-    const target = st.currentTargetTask || st.task;
-    if (target !== st.task) {
-      const copy = st.task.bars.splice(st.barIndex, 1)[0];
-      if (copy) {
-        if (!target.bars) target.bars = [];
-        target.bars.push(copy);
-      }
+  const relocated = st.rows && st.currentTargetTask && st.currentTargetTask !== st.task;
+  if (relocated) {
+    // Move (or, for Option-drag, copy) the dragged bar into the row it was
+    // dropped on — a different task / phase.
+    const movedBar = st.task.bars.splice(st.barIndex, 1)[0];
+    if (movedBar) {
+      if (!st.currentTargetTask.bars) st.currentTargetTask.bars = [];
+      st.currentTargetTask.bars.push(movedBar);
     }
+    if (!st.isMulti) clearSelection();
+    render();
+  } else if (st.isCopy) {
+    // Copy created and dropped in the same row.
     render();
   } else if (st.moved) {
     // A single (non-multi) move drops any multi-selection.
