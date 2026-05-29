@@ -1334,6 +1334,10 @@ function openProject(id, isNew) {
   renderTitle();
   render();
   goToday();
+  // A freshly opened/loaded project has no pending user edits — clear the
+  // unsaved flag that render() set, so the Firebase listener won't mistake
+  // the initial render for a local edit.
+  markSaved();
 
   // Attach Firebase listener for real-time sync
   if (firebaseEnabled && db) {
@@ -1405,28 +1409,31 @@ function attachFirebaseListener(id) {
     }
 
     const data = snapshot.val();
+    const firstTime = isFirstCallback;
+    isFirstCallback = false;
 
-    if (isFirstCallback) {
-      isFirstCallback = false;
-      if (!data || !data.tasks) {
-        // Firebase has no data yet — push local data to Firebase
-        if (tasks.length > 0) {
-          ignoreNextFirebaseUpdate = true;
-          ref.set({
-            tasks: tasks,
-            title: projectTitle,
-            updatedAt: firebase.database.ServerValue.TIMESTAMP
-          });
-        }
-        setSyncStatus('connected');
-        return;
+    if (firstTime && (!data || !data.tasks)) {
+      // Firebase has no data yet — push local data to Firebase
+      if (tasks.length > 0) {
+        ignoreNextFirebaseUpdate = true;
+        ref.set({
+          tasks: tasks,
+          title: projectTitle,
+          updatedAt: firebase.database.ServerValue.TIMESTAMP
+        });
       }
+      setSyncStatus('connected');
+      return;
     }
 
     if (data && data.tasks) {
-      // Don't re-render (which would destroy an open text input) while the
-      // user is typing a name/label. The update is re-applied on the next event.
-      if (isEditingText()) { setSyncStatus('connected'); return; }
+      // After the initial sync, never overwrite local state while the user is
+      // typing, or while there are unsaved local edits not yet pushed — otherwise
+      // a stale echo could revert a just-made label/color change.
+      if (!firstTime && (isEditingText() || hasUnsavedChanges)) {
+        setSyncStatus('connected');
+        return;
+      }
       tasks = data.tasks;
       nextId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
       if (data.title) {
