@@ -356,6 +356,13 @@ body {
 
 .task-actions button:hover { background: rgba(26, 26, 46, 0.08); }
 .task-actions button.delete:hover { background: rgba(231, 76, 60, 0.1); color: #e74c3c; }
+.task-actions button.eye svg { display: block; }
+.task-actions button.eye.active { color: var(--primary); background: rgba(26,26,46,0.08); }
+
+/* Hidden tasks (shown dimmed only while "非表示" view is on) */
+.task-row.is-hidden { opacity: .5; }
+.task-row.is-hidden .task-actions { display: flex; }
+.timeline-row.is-hidden { opacity: .4; }
 
 /* Color indicator */
 .task-color {
@@ -1092,6 +1099,8 @@ body {
       </div>
       <button id="btnHorizontal" class="active" onclick="setViewMode('horizontal')">横表示</button>
       <button id="btnVertical" onclick="setViewMode('vertical')">縦表示</button>
+      <span style="width:1px;height:20px;background:rgba(255,255,255,.2);"></span>
+      <button id="btnHidden" onclick="toggleShowHidden()" style="display:none;">非表示</button>
     </div>
   </div>
 
@@ -1336,6 +1345,7 @@ function openProject(id, isNew) {
   window.location.hash = '#/' + id;
   resetUndo();
   selectedBars.clear();
+  showHidden = false;
 
   document.getElementById('projectSelector').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -1653,11 +1663,15 @@ function getChildren(parentId) {
   return tasks.filter(t => (t.parentId || null) === parentId);
 }
 
+// When false, tasks marked hidden (and their subtree) are excluded from view.
+let showHidden = false;
+
 function getVisibleTasks() {
   const result = [];
   const roots = tasks.filter(t => !t.parentId);
   function walk(list) {
     for (const t of list) {
+      if (t.hidden && !showHidden) continue; // skip the hidden task and its subtree
       result.push(t);
       if (!t.collapsed) {
         walk(getChildren(t.id));
@@ -1666,6 +1680,24 @@ function getVisibleTasks() {
   }
   walk(roots);
   return result;
+}
+
+function countHiddenTasks() {
+  return tasks.filter(t => t.hidden).length;
+}
+
+function toggleShowHidden() {
+  showHidden = !showHidden;
+  render();
+}
+
+function updateHiddenButton() {
+  const btn = document.getElementById('btnHidden');
+  if (!btn) return;
+  const n = countHiddenTasks();
+  btn.textContent = n > 0 ? `非表示 ${n}` : '非表示';
+  btn.classList.toggle('active', showHidden);
+  btn.style.display = (n > 0 || showHidden) ? '' : 'none';
 }
 
 // ========== CALENDAR ==========
@@ -1777,6 +1809,7 @@ function render() {
   if (viewMode === 'vertical') renderVertical();
   markUnsaved();
   updateMonthLabel();
+  updateHiddenButton();
 }
 
 function getTimelineCellW() {
@@ -1795,12 +1828,15 @@ function updateMonthLabel() {
   label.textContent = `${d.getFullYear()}年${d.getMonth() + 1}月`;
 }
 
+const EYE_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8Z"/><circle cx="8" cy="8" r="2"/></svg>';
+const EYE_OFF_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8Z"/><circle cx="8" cy="8" r="2"/><path d="M2 2l12 12"/></svg>';
+
 function renderSidebar(visible) {
   const container = document.getElementById('sidebarBody');
   container.innerHTML = '';
   visible.forEach((task, idx) => {
     const row = document.createElement('div');
-    row.className = `task-row ${task.type === 'phase' ? 'is-phase' : 'is-task'}`;
+    row.className = `task-row ${task.type === 'phase' ? 'is-phase' : 'is-task'}${task.hidden ? ' is-hidden' : ''}`;
     row.dataset.taskId = task.id;
     row.dataset.index = idx;
 
@@ -1844,6 +1880,12 @@ function renderSidebar(visible) {
     addBtn.title = '子タスク追加';
     addBtn.onclick = (e) => { e.stopPropagation(); addChildTask(task); };
     actions.appendChild(addBtn);
+    const eyeBtn = document.createElement('button');
+    eyeBtn.className = 'eye' + (task.hidden ? ' active' : '');
+    eyeBtn.title = task.hidden ? '表示する' : '非表示にする';
+    eyeBtn.innerHTML = task.hidden ? EYE_OFF_SVG : EYE_SVG;
+    eyeBtn.onclick = (e) => { e.stopPropagation(); task.hidden = !task.hidden; render(); };
+    actions.appendChild(eyeBtn);
     const delBtn = document.createElement('button');
     delBtn.className = 'delete';
     delBtn.textContent = '×';
@@ -1965,7 +2007,7 @@ function renderTimeline(visible, days) {
 
   visible.forEach((task) => {
     const row = document.createElement('div');
-    row.className = 'timeline-row';
+    row.className = 'timeline-row' + (task.hidden ? ' is-hidden' : '');
 
     days.forEach((d, i) => {
       const cell = document.createElement('div');
