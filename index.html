@@ -1101,6 +1101,9 @@ body {
       <button id="btnVertical" onclick="setViewMode('vertical')">縦表示</button>
       <span style="width:1px;height:20px;background:rgba(255,255,255,.2);"></span>
       <button id="btnHidden" onclick="toggleShowHidden()" style="display:none;">非表示</button>
+      <span style="width:1px;height:20px;background:rgba(255,255,255,.2);"></span>
+      <button onclick="exportData()" title="現在のプロジェクトをJSONファイルに保存">保存(JSON)</button>
+      <button onclick="importData()" title="JSONファイルから読み込み">読み込み</button>
     </div>
   </div>
 
@@ -2940,35 +2943,67 @@ function startEditTitle() {
 
 // ========== EXPORT / IMPORT ==========
 function exportData() {
-  const data = JSON.stringify(tasks, null, 2);
+  const payload = {
+    title: projectTitle,
+    tasks: tasks,
+    exportedAt: new Date().toISOString()
+  };
+  const data = JSON.stringify(payload, null, 2);
   const blob = new Blob([data], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'schedule_' + toLocalDateStr(new Date()) + '.json';
+  const safeName = (projectTitle && projectTitle !== 'プロジェクト名を入力')
+    ? projectTitle.replace(/[\\/:*?"<>|]/g, '_') : 'schedule';
+  a.download = safeName + '_' + toLocalDateStr(new Date()) + '.json';
   a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 function importData() {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.json';
+  input.accept = '.json,application/json';
   input.onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
+      let parsed;
       try {
-        tasks = JSON.parse(ev.target.result);
-        nextId = Math.max(...tasks.map(t => t.id)) + 1;
-        render();
-        manualSave();
+        parsed = JSON.parse(ev.target.result);
       } catch(err) {
-        alert('ファイルの読み込みに失敗しました');
+        alert('ファイルの読み込みに失敗しました（JSONとして解析できません）');
+        return;
       }
+      // Accept both the new {title, tasks} object and the old bare tasks array.
+      const newTasks = Array.isArray(parsed) ? parsed : (parsed && parsed.tasks);
+      if (!Array.isArray(newTasks)) {
+        alert('このファイルにはスケジュールデータが含まれていません');
+        return;
+      }
+      if (!confirm('現在のプロジェクトの内容を、読み込んだファイルで置き換えます。よろしいですか？')) return;
+      applyImportedData(parsed);
     };
     reader.readAsText(file);
   };
   input.click();
+}
+
+// Replace the current project's data with imported data (object or bare array).
+function applyImportedData(parsed) {
+  const newTasks = Array.isArray(parsed) ? parsed : (parsed && parsed.tasks);
+  if (!Array.isArray(newTasks)) return false;
+  tasks = newTasks;
+  if (!Array.isArray(parsed) && typeof parsed.title === 'string' && parsed.title) {
+    projectTitle = parsed.title;
+    renderTitle();
+  }
+  nextId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id || 0)) + 1 : 1;
+  clearSelection();
+  showHidden = false;
+  render();
+  manualSave();
+  return true;
 }
 
 // ========== INIT ==========
