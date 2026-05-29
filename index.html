@@ -627,8 +627,10 @@ body {
 /* Color picker */
 .color-picker {
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 6px;
   padding: 8px 12px;
+  max-width: 256px;
 }
 
 .color-swatch {
@@ -1475,7 +1477,9 @@ function backToProjects() {
 // ========== DATA ==========
 const COLORS = [
   '#1a1a2e','#4a3f8a','#7c3aed','#e74c3c','#f39c12',
-  '#27ae60','#2980b9','#16a085','#e67e22','#8e44ad'
+  '#27ae60','#2980b9','#16a085','#e67e22','#8e44ad',
+  '#c0392b','#d35400','#f1c40f','#2ecc71','#1abc9c',
+  '#3498db','#9b59b6','#34495e','#e84393','#795548'
 ];
 
 const JAPANESE_HOLIDAYS = {
