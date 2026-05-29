@@ -542,6 +542,18 @@ body {
   max-width: calc(100% - 12px);
 }
 
+/* Narrow bars: place the label just outside, to the right, so it stays legible. */
+.gantt-bar.narrow-label .bar-label {
+  position: absolute;
+  left: calc(100% + 5px);
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: none;
+  overflow: visible;
+  color: var(--text);
+  text-shadow: 0 1px 2px rgba(255,255,255,.95), 0 0 2px rgba(255,255,255,.95);
+}
+
 /* Bar delete button */
 .bar-delete {
   position: absolute;
@@ -1954,18 +1966,23 @@ function renderTimeline(visible, days) {
       if (startIdx >= 0 || endIdx >= 0) {
         const si = Math.max(startIdx, 0);
         const ei = endIdx >= 0 ? endIdx : days.length - 1;
+        const barW = (ei - si + 1) * cellW - 4;
         const barEl = document.createElement('div');
         barEl.className = 'gantt-bar' + (selectedBars.has(b) ? ' selected' : '');
         barEl.style.left = (si * cellW + 2) + 'px';
-        barEl.style.width = ((ei - si + 1) * cellW - 4) + 'px';
+        barEl.style.width = barW + 'px';
         barEl.style.background = b.color || task.color;
         barEl.dataset.taskId = task.id;
         barEl.dataset.barIndex = bIdx;
 
+        const labelText = barLabelText(task, b, bIdx);
         const label = document.createElement('span');
         label.className = 'bar-label';
-        label.textContent = barLabelText(task, b, bIdx);
+        label.textContent = labelText;
         barEl.appendChild(label);
+        // Narrow bars (e.g. 1 day) can't fit the label inside, so show it
+        // just to the right of the bar instead of clipping it away.
+        if (labelText && barW < 50) barEl.classList.add('narrow-label');
 
         barEl.addEventListener('contextmenu', (e) => showBarContextMenu(e, task, bIdx));
 
@@ -2246,7 +2263,7 @@ function startBarRename(task, barIndex) {
   const cur = barLabelText(task, b, barIndex);
   const input = document.createElement('input');
   input.value = cur;
-  input.style.cssText = 'width:100%;border:none;border-radius:3px;padding:0 4px;font-size:inherit;font-weight:inherit;color:#1a1a2e;outline:none;font-family:inherit;background:#fff;';
+  input.style.cssText = 'width:100%;min-width:110px;border:none;border-radius:3px;padding:0 4px;font-size:inherit;font-weight:inherit;color:#1a1a2e;outline:none;font-family:inherit;background:#fff;';
   label.textContent = '';
   label.style.pointerEvents = 'auto';
   label.appendChild(input);
