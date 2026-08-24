@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "projects": {
+      "$pid": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "index": {
+      ".read": true,
+      "$pid": {
+        ".write": true
+      }
+    }
+  }
+}

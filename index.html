@@ -1226,6 +1226,7 @@ function initFirebase() {
     db = firebase.database();
     firebaseEnabled = true;
     console.log('Firebase接続成功');
+    watchProjectIndex();
     return true;
   } catch(e) {
     console.error('Firebase初期化エラー:', e);
@@ -1249,14 +1250,56 @@ function setSyncStatus(status) {
 }
 
 // ========== PROJECT MANAGEMENT ==========
+// プロジェクト一覧は Firebase の /index に置く（ブラウザ非依存・全端末で共有）。
+// localStorage は通信できないときの読み取り専用キャッシュとしてのみ使う。
+let projectIndex = [];      // [{id, name, createdAt, updatedAt}]
+let indexListenerOn = false;
+let indexLoaded = false;
+
 function getProjectListFromLocal() {
+  if (projectIndex.length) return projectIndex;
   try {
-    return JSON.parse(localStorage.getItem('gantt_projects') || '[]');
+    return JSON.parse(localStorage.getItem('gantt_index_cache') || '[]');
   } catch(e) { return []; }
 }
 
-function saveProjectListToLocal(list) {
-  localStorage.setItem('gantt_projects', JSON.stringify(list));
+function cacheProjectIndex(list) {
+  try { localStorage.setItem('gantt_index_cache', JSON.stringify(list)); } catch(e) {}
+}
+
+// /index を購読して一覧を常に最新に保つ
+function watchProjectIndex() {
+  if (!firebaseEnabled || !db || indexListenerOn) return;
+  indexListenerOn = true;
+  db.ref('index').on('value', (snap) => {
+    const val = snap.val() || {};
+    projectIndex = Object.keys(val).map(id => ({
+      id,
+      name: val[id].name || '無題プロジェクト',
+      createdAt: val[id].createdAt || 0,
+      updatedAt: val[id].updatedAt || 0
+    }));
+    indexLoaded = true;
+    cacheProjectIndex(projectIndex);
+    const sel = document.getElementById('projectSelector');
+    if (sel && sel.style.display !== 'none') renderProjectList();
+  }, (err) => {
+    console.error('index read error:', err);
+  });
+}
+
+// 一覧エントリの作成・更新（名前と更新日時だけの軽いデータ）
+function upsertProjectIndex(id, name) {
+  if (!firebaseEnabled || !db || !id) return;
+  const entry = { name: name || '無題プロジェクト', updatedAt: firebase.database.ServerValue.TIMESTAMP };
+  const known = projectIndex.find(p => p.id === id);
+  if (!known) entry.createdAt = firebase.database.ServerValue.TIMESTAMP;
+  db.ref('index/' + id).update(entry).catch(e => console.error('index write error:', e));
+}
+
+function removeProjectIndex(id) {
+  if (!firebaseEnabled || !db || !id) return;
+  db.ref('index/' + id).remove().catch(e => console.error('index remove error:', e));
 }
 
 function generateProjectSlug() {
@@ -1281,7 +1324,8 @@ function renderProjectList() {
   const projects = getProjectListFromLocal();
 
   if (projects.length === 0) {
-    list.innerHTML = '<p style="text-align:center;color:#888;font-size:13px;padding:16px;">プロジェクトがありません</p>';
+    const msg = (firebaseEnabled && !indexLoaded) ? '読み込み中…' : 'プロジェクトがありません';
+    list.innerHTML = '<p style="text-align:center;color:#888;font-size:13px;padding:16px;">' + msg + '</p>';
     return;
   }
 
@@ -1309,15 +1353,7 @@ function createNewProject() {
   if (!name) { input.focus(); return; }
 
   const slug = generateProjectSlug();
-  const projects = getProjectListFromLocal();
-
-  projects.push({
-    id: slug,
-    name: name,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  });
-  saveProjectListToLocal(projects);
+  upsertProjectIndex(slug, name);
   input.value = '';
 
   // Set project title and initialize
@@ -1327,11 +1363,11 @@ function createNewProject() {
 
 function deleteProject(id) {
   if (!confirm('このプロジェクトを削除しますか？')) return;
-  let projects = getProjectListFromLocal();
-  projects = projects.filter(p => p.id !== id);
-  saveProjectListToLocal(projects);
+  removeProjectIndex(id);
+  projectIndex = projectIndex.filter(p => p.id !== id);
+  cacheProjectIndex(projectIndex);
 
-  // Remove local data
+  // Remove local cache
   localStorage.removeItem('gantt_tasks_' + id);
   localStorage.removeItem('gantt_title_' + id);
 
@@ -1632,14 +1668,8 @@ function saveTasks() {
   localStorage.setItem('gantt_tasks_' + currentProjectId, JSON.stringify(tasks));
   localStorage.setItem('gantt_title_' + currentProjectId, projectTitle);
 
-  // Update project list timestamp
-  const projects = getProjectListFromLocal();
-  const proj = projects.find(p => p.id === currentProjectId);
-  if (proj) {
-    proj.updatedAt = Date.now();
-    proj.name = projectTitle !== 'プロジェクト名を入力' ? projectTitle : proj.name;
-    saveProjectListToLocal(projects);
-  }
+  // Update shared index (name + timestamp)
+  upsertProjectIndex(currentProjectId, projectTitle);
 
   // Debounced save to Firebase
   if (firebaseEnabled && db) {
@@ -3015,17 +3045,7 @@ function initFromHash() {
   if (hash && hash.startsWith('#/')) {
     const projectId = hash.slice(2);
     if (projectId) {
-      // Check if project exists in local list, if not add it
-      const projects = getProjectListFromLocal();
-      if (!projects.find(p => p.id === projectId)) {
-        projects.push({
-          id: projectId,
-          name: projectId,
-          createdAt: Date.now(),
-          updatedAt: Date.now()
-        });
-        saveProjectListToLocal(projects);
-      }
+      // 一覧は /index が持つため、ここでの登録は不要
       openProject(projectId);
       return;
     }
