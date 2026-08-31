@@ -2451,7 +2451,12 @@ function openBarMenu(clientX, clientY, task, barIndex) {
     swatch.className = 'color-swatch';
     swatch.style.background = c;
     if (c === cur) swatch.style.borderColor = '#1a1a2e';
-    swatch.onclick = () => {
+    // Fire on mousedown so a swatch reliably registers even if mouseup
+    // lands a pixel off (click only fires when mousedown+mouseup share a
+    // target, so tiny cursor drift over a 20px swatch could miss).
+    swatch.onmousedown = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
       bar.color = c;
       hideBarContextMenu();
       render();
@@ -2708,10 +2713,12 @@ function showContextMenu(e, task) {
     swatch.className = 'color-swatch';
     swatch.style.background = c;
     if (c === task.color) swatch.style.borderColor = '#1a1a2e';
-    swatch.onclick = () => {
+    swatch.onmousedown = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
       task.color = c;
       getChildren(task.id).forEach(ch => ch.color = c);
-      menu.classList.remove('show');
+      hideContextMenu();
       render();
     };
     picker.appendChild(swatch);
