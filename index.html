@@ -416,6 +416,51 @@ body {
   position: relative;
 }
 
+/* Timeline header uses the same flex layout as the body rows so day columns
+   align pixel-perfectly with the bars. */
+.timeline-header .th-months {
+  display: flex;
+  height: 28px;
+  background: #eeeee6;
+}
+.timeline-header .month-cell {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  text-align: left;
+  padding-left: 10px;
+  line-height: 28px;
+  height: 28px;
+  border-left: 2px solid #ccc;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.timeline-header .month-cell:first-child { border-left: none; }
+.timeline-header .th-days {
+  display: flex;
+  height: 32px;
+  background: #f7f7f0;
+}
+.timeline-header .day-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--cell-width);
+  min-width: var(--cell-width);
+  max-width: var(--cell-width);
+  height: 32px;
+  font-size: 10px;
+  color: var(--text-light);
+  text-align: center;
+  border-left: 1px solid #f0f0e8;
+  box-sizing: border-box;
+  cursor: default;
+}
+
 .timeline-header {
   position: sticky;
   top: 0;
@@ -2002,12 +2047,13 @@ function renderTimeline(visible, days) {
     prevMonth = m;
   });
 
-  // Build header as a table so month and day columns share exact widths
-  let tableHtml = '<table class="timeline-table"><tr>';
+  // Build header as flex divs (same layout the body uses) so day columns
+  // align pixel-perfectly with the timeline rows and their bars.
+  let html = '<div class="th-months">';
   for (const mr of monthRanges) {
-    tableHtml += `<th class="month-cell" colspan="${mr.count}">${mr.year}/${mr.month+1}月</th>`;
+    html += `<div class="month-cell" style="width:calc(${mr.count} * var(--cell-width))">${mr.year}/${mr.month+1}月</div>`;
   }
-  tableHtml += '</tr><tr>';
+  html += '</div><div class="th-days">';
   for (let i = 0; i < days.length; i++) {
     const d = days[i];
     let cls = 'day-cell';
@@ -2017,12 +2063,12 @@ function renderTimeline(visible, days) {
     if (d.isToday) cls += ' today';
     if (monthStartIndices.has(i)) cls += ' month-start';
     const title = d.holiday ? d.holiday : '';
-    tableHtml += `<th class="${cls}" title="${title}"><span class="day-num">${d.date.getDate()}</span><span class="day-name">${DOW_NAMES[d.dow]}</span></th>`;
+    html += `<div class="${cls}" title="${title}"><span class="day-num">${d.date.getDate()}</span><span class="day-name">${DOW_NAMES[d.dow]}</span></div>`;
   }
-  tableHtml += '</tr></table>';
-  header.innerHTML = tableHtml;
+  html += '</div>';
+  header.innerHTML = html;
 
-  // Measure actual cell positions from the rendered table
+  // Measure actual cell width (matches the body's .timeline-cell width).
   const dayCells = header.querySelectorAll('.day-cell');
   const cellW = dayCells.length > 0 ? dayCells[0].offsetWidth : 36;
   const totalW = days.length * cellW;
