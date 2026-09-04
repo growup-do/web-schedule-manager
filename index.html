@@ -1639,7 +1639,7 @@ function makeId() { return nextId++; }
 function initDefaultTasks() {
   nextId = 1;
   tasks = [
-    { id: makeId(), name: '', type: 'task', color: COLORS[0], bars: [], collapsed: false, parentId: null }
+    { id: makeId(), name: '', type: 'phase', color: COLORS[0], bars: [], collapsed: false, parentId: null }
   ];
 }
 
@@ -2436,7 +2436,12 @@ function openBarMenu(clientX, clientY, task, barIndex) {
     swatch.onmousedown = (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      bar.color = c;
+      // Look up the current bar via ids in case a Firebase sync replaced
+      // `tasks` while the menu was open — writing to the captured `bar`
+      // would otherwise mutate an orphan and appear to do nothing.
+      const t = tasks.find(x => x.id === task.id) || task;
+      const b = (t.bars || [])[barIndex] || bar;
+      b.color = c;
       hideBarContextMenu();
       render();
     };
@@ -2695,8 +2700,11 @@ function showContextMenu(e, task) {
     swatch.onmousedown = (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      task.color = c;
-      getChildren(task.id).forEach(ch => ch.color = c);
+      // Resolve the current task by id — a Firebase sync between menu open
+      // and this click may have replaced `tasks`, making `task` a stale ref.
+      const t = tasks.find(x => x.id === task.id) || task;
+      t.color = c;
+      getChildren(t.id).forEach(ch => ch.color = c);
       hideContextMenu();
       render();
     };
