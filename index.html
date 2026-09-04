@@ -1638,29 +1638,8 @@ function makeId() { return nextId++; }
 
 function initDefaultTasks() {
   nextId = 1;
-  const today = new Date();
-  const d = (offset) => {
-    const dt = new Date(today);
-    dt.setDate(dt.getDate() + offset);
-    return toLocalDateStr(dt);
-  };
   tasks = [
-    { id: makeId(), name: '要件定義・仕様確定', type: 'phase', color: COLORS[0], bars: [{start: d(0), end: d(13)}], collapsed: false, parentId: null },
-    { id: makeId(), name: 'コンセプト開発', type: 'phase', color: COLORS[1], bars: [{start: d(14), end: d(27)}], collapsed: false, parentId: null },
-    { id: makeId(), name: 'デザイン制作', type: 'phase', color: COLORS[2], bars: [], collapsed: false, parentId: null },
-    { id: makeId(), name: 'FVの制作', type: 'task', color: COLORS[2], bars: [{start: d(28), end: d(34)}], collapsed: false, parentId: 3 },
-    { id: makeId(), name: 'クライアントご確認', type: 'task', color: COLORS[3], bars: [{start: d(35), end: d(37)}], collapsed: false, parentId: 3 },
-    { id: makeId(), name: 'トップページ', type: 'task', color: COLORS[2], bars: [{start: d(38), end: d(48)}], collapsed: false, parentId: 3 },
-    { id: makeId(), name: 'クライアントご確認', type: 'task', color: COLORS[3], bars: [{start: d(49), end: d(51)}], collapsed: false, parentId: 3 },
-    { id: makeId(), name: '下層ページ', type: 'task', color: COLORS[2], bars: [{start: d(52), end: d(62)}], collapsed: false, parentId: 3 },
-    { id: makeId(), name: 'クライアントご確認', type: 'task', color: COLORS[3], bars: [{start: d(63), end: d(65)}], collapsed: false, parentId: 3 },
-    { id: makeId(), name: 'スマホのデザイン', type: 'task', color: COLORS[2], bars: [{start: d(66), end: d(76)}], collapsed: false, parentId: 3 },
-    { id: makeId(), name: 'クライアントご確認', type: 'task', color: COLORS[3], bars: [{start: d(77), end: d(79)}], collapsed: false, parentId: 3 },
-    { id: makeId(), name: '撮影・動画制作', type: 'phase', color: COLORS[4], bars: [{start: d(49), end: d(76)}], collapsed: false, parentId: null },
-    { id: makeId(), name: 'コーディング', type: 'phase', color: COLORS[6], bars: [], collapsed: false, parentId: null },
-    { id: makeId(), name: 'Webサイト構築', type: 'task', color: COLORS[6], bars: [{start: d(80), end: d(104)}], collapsed: false, parentId: 13 },
-    { id: makeId(), name: 'テスト公開', type: 'task', color: COLORS[6], bars: [{start: d(105), end: d(118)}], collapsed: false, parentId: 13 },
-    { id: makeId(), name: '正式リリース', type: 'phase', color: COLORS[5], bars: [{start: d(119), end: d(125)}], collapsed: false, parentId: null },
+    { id: makeId(), name: '', type: 'task', color: COLORS[0], bars: [], collapsed: false, parentId: null }
   ];
 }
 
