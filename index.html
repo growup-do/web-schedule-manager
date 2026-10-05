@@ -464,7 +464,10 @@ body {
 .timeline-header {
   position: sticky;
   top: 0;
-  z-index: 5;
+  /* Must stay above bars in every state (default 2, selected 5, hover 6,
+     narrow-label 8, narrow-label:hover 9) so bars never show through the
+     date row when scrolling. */
+  z-index: 15;
   background: #f7f7f0;
   border-bottom: 1px solid var(--border);
 }
